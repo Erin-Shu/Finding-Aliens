@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Jan 30 18:24:29 2025
+
+@author: erin
+"""
+
+import lightkurve as lk
+import matplotlib.pyplot as plt
+import numpy as np
+from astropy.timeseries import LombScargle
+from astroquery.mast import Catalogs
+
+# Search for a TESS target
+search_result = lk.search_lightcurve("TIC 410038602") 
+
+# Download the light curve data
+lc = search_result[0].download()
+
+# Remove NaN or masked values
+lc_clean = lc.remove_nans()
+
+# Convert to regular NumPy arrays (fixes the unmasked output issue)
+time = np.asarray(lc_clean.time.value)
+flux = np.asarray(lc_clean.flux)
+flux_err = np.asarray(lc_clean.flux_err)
+
+# Plot the cleaned light curve with dots and error bars
+plt.figure(figsize=(10, 5))
+plt.errorbar(time, flux, yerr=flux_err, 
+             fmt='o', markersize=2, color='black', ecolor='gray', alpha=0.7, elinewidth=0.5)
+plt.xlabel("Time (days)")
+plt.ylabel("Flux")
+plt.title("TESS Light Curve for TIC 266980320")
+plt.grid(alpha=0.3)
+plt.show()
