@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Feb 11 18:05:38 2025
+
+@author: erin
+"""
+
+import lightkurve as lk
+import matplotlib.pyplot as plt
+import numpy as np
+from astropy.timeseries import LombScargle
+
+def get_tess_lightcurve(tic_id):
+    """Retrieve real TESS light curve for a given TIC ID."""
+    search_result = lk.search_lightcurve(f"TIC {tic_id}", mission="TESS")
+    if len(search_result) == 0:
+        raise ValueError(f"No TESS data found for TIC {tic_id}")
+    
+    # Download the first available light curve
+    lc = search_result[0].download().remove_nans()
+    
+    return lc.time.value, lc.flux  # Return time and flux arrays
+
+def phase_fold_data(time, flux, frequency):
+    """Fold the light curve over a given frequency."""
+    period = 1 / frequency  # Convert frequency to period
+    phase = (time % period) / period  # Compute phase
+    return phase, flux
+
+def plot_periodogram_and_folding_fmax(tic_id):
+    """Compute and plot Lomb-Scargle periodogram, then fold data over Fmax frequency."""
+    try:
+        time, flux = get_tess_lightcurve(tic_id)
+        
+        # Fmax = 0.55 mHz = 555 µHz, convert to cycles per day
+        f_max_hz = 0.55e-3  # 0.55 mHz = 555 µHz
+        f_max_per_day = f_max_hz * 86400  # Convert Hz to cycles per day
+        
+        # Use np.arange for frequency range
+        fmin = 0.01  # Set fmin as a reasonable step size (adjust as necessary)
+        frequencies = np.arange(f_max_per_day * 0.5, f_max_per_day * 1.5, fmin)
+        
+        # Compute Lomb-Scargle periodogram
+        power = LombScargle(time, flux).power(frequencies)
+
+        # Plot the periodogram
+        plt.figure(figsize=(8, 5))
+        plt.plot(frequencies, power, color='b', label="Lomb-Scargle Power")
+        plt.axvline(f_max_per_day, color='r', linestyle="--", label="Fmax = 555 µHz")
+        plt.xlabel("Frequency (1/day)")
+        plt.ylabel("Power")
+        plt.title(f"Lomb-Scargle Periodogram for TIC {tic_id}")
+        plt.legend()
+        plt.grid(alpha=0.3)
+        plt.show()
+
+        # Phase-fold over Fmax
+        phase_max, flux_max = phase_fold_data(time, flux, f_max_per_day)
+        plt.figure(figsize=(8, 5))
+        plt.scatter(phase_max, flux_max, s=1, color='b', alpha=0.5)
+        plt.xlabel("Phase (Fmax)")
+        plt.ylabel("Flux")
+        plt.title(f"Phase-Folded Light Curve (Fmax = 555 µHz) for TIC {tic_id}")
+        plt.grid(alpha=0.3)
+        plt.show()
+
+    except ValueError as e:
+        print(f"Error: {e}")
+
+# Example usage
+tic_id = 410038602
+plot_periodogram_and_folding_fmax(tic_id)
