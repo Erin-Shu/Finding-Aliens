@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Feb 11 18:14:33 2025
+
+@author: erin
+"""
+
+import lightkurve as lk
+import matplotlib.pyplot as plt
+import numpy as np
+from astropy.timeseries import LombScargle
+from scipy.signal import find_peaks
+
+def get_tess_lightcurve(tic_id):
+    """Retrieve real TESS light curve for a given TIC ID."""
+    search_result = lk.search_lightcurve(f"TIC {tic_id}", mission="TESS")
+    if len(search_result) == 0:
+        raise ValueError(f"No TESS data found for TIC {tic_id}")
+    
+    # Download the first available light curve
+    lc = search_result[0].download().remove_nans()
+    
+    return lc.time.value, lc.flux  # Return time and flux arrays
+
+def compute_lomb_scargle_autopower(tic_id, fmax, fmin):
+    """Compute Lomb-Scargle periodogram with autopower."""
+    time, flux = get_tess_lightcurve(tic_id)
+    
+    # Frequency range from 0 to fmax, using np.arange with fmin step size
+    frequencies = np.arange(0., fmax, fmin)
+    
+    # Compute Lomb-Scargle periodogram with autopower (auto frequency range)
+    lomb = LombScargle(time, flux)
+    power = lomb.power(frequencies)
+    
+    return frequencies, power
+
+def identify_peaks(frequencies, power):
+    """Identify peaks in the Lomb-Scargle periodogram."""
+    # Using scipy find_peaks to identify peaks in the periodogram
+    peaks, _ = find_peaks(power, height=0.2)  # Adjust threshold as needed
+    peak_frequencies = frequencies[peaks]
+    peak_powers = power[peaks]
+    
+    return peak_frequencies, peak_powers, peaks
+
+def parabola_fit(frequencies, power, peak_index):
+    """Use the parabola trick to fit around a peak and extract frequency and width."""
+    # Get the frequencies and power around the peak
+    peak_freq = frequencies[peak_index]
+    start = max(0, peak_index - 2)
+    end = min(len(frequencies), peak_index + 3)
+    freq_window = frequencies[start:end]
+    power_window = power[start:end]
+    
+    # Parabola fit: ax^2 + bx + c
+    p = np.polyfit(freq_window, power_window, 2)
+    
+    # The frequency of the peak is at the vertex of the parabola
+    peak_freq_parabola = -p[1] / (2 * p[0])  # x = -b/2a
+    peak_width = np.sqrt(-2 * p[0])  # The width of the peak (estimate)
+    
+    return peak_freq_parabola, peak_width
+
+def plot_lomb_scargle(tic_id, fmax, fmin):
+    """Compute Lomb-Scargle periodogram and plot the results."""
+    try:
+        frequencies, power = compute_lomb_scargle_autopower(tic_id, fmax, fmin)
+        
+        # Identify peaks in the periodogram
+        peak_frequencies, peak_powers, peaks = identify_peaks(frequencies, power)
+        
+        # Apply the parabola trick to each peak
+        peak_info = []
+        for peak in peaks:
+            peak_freq_parabola, peak_width = parabola_fit(frequencies, power, peak)
+            peak_info.append((peak_freq_parabola, peak_width))
+        
+        # Plot the periodogram with identified peaks
+        plt.figure(figsize=(8, 5))
+        plt.plot(frequencies, power, color='b', label="Lomb-Scargle Power")
+        plt.scatter(peak_frequencies, peak_powers, color='red', label="Detected Peaks")
+        
+        # Plot each peak with the fitted parabola
+        for peak_freq_parabola, peak_width in peak_info:
+            plt.axvline(peak_freq_parabola, color='g', linestyle="--", label=f"Peak: {peak_freq_parabola:.3f} 1/day")
+        
+        plt.xlabel("Frequency (1/day)")
+        plt.ylabel("Power")
+        plt.title(f"Lomb-Scargle Periodogram with Peaks and Parabola Trick for TIC {tic_id}")
+        plt.legend()
+        plt.grid(alpha=0.3)
+        plt.show()
+
+    except ValueError as e:
+        print(f"Error: {e}")
+
+# Parameters
+fmax = 0.55e-3 * 86400  # 0.55 mHz = 555 µHz (in 1/day)
+fmin = 7.7e-9 * 86400  # 7.7 nHz (in 1/day)
+
+# Example usage
+tic_id = 410038602
+plot_lomb_scargle(tic_id, fmax, fmin)
