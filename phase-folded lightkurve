@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Feb 12 10:57:13 2025
+
+@author: erin
+"""
+
+import lightkurve as lk
+import matplotlib.pyplot as plt
+import numpy as np
+from astropy.timeseries import LombScargle
+from scipy.signal import find_peaks
+
+def get_tess_lightcurve(tic_id):
+    """Retrieve real TESS light curve for a given TIC ID."""
+    search_result = lk.search_lightcurve(f"TIC {tic_id}", mission="TESS")
+    if len(search_result) == 0:
+        raise ValueError(f"No TESS data found for TIC {tic_id}")
+    
+    lc = search_result[0].download().remove_nans()
+    
+    return lc.time.value, lc.flux  # Return time and flux arrays
+
+def compute_lomb_scargle_autopower(tic_id, fmax, fmin):
+    """Compute Lomb-Scargle periodogram with autopower."""
+    time, flux = get_tess_lightcurve(tic_id)
+    
+    frequencies = np.arange(fmin, fmax, fmin)  # Frequency range
+    
+    lomb = LombScargle(time, flux)
+    power = lomb.power(frequencies)
+    
+    return time, flux, frequencies, power
+
+def identify_peak_frequency(frequencies, power):
+    """Identify the most significant peak in the Lomb-Scargle periodogram."""
+    peaks, _ = find_peaks(power, height=0.2)
+    if len(peaks) == 0:
+        raise ValueError("No significant peaks found in the periodogram.")
+    
+    peak_powers = power[peaks]
+    max_peak_idx = peaks[np.argmax(peak_powers)]
+    
+    return frequencies[max_peak_idx]  # The frequency corresponding to the highest peak
+
+def phase_fold_data(time, flux, peak_frequency):
+    """Phase-fold the data using the most significant peak frequency."""
+    period = 1 / peak_frequency  # Convert frequency to period
+    
+    phase = (time % period) / period  # Compute phase
+    
+    sorted_indices = np.argsort(phase)
+    phase_sorted = phase[sorted_indices]
+    flux_sorted = flux[sorted_indices]
+    
+    return phase_sorted, flux_sorted, period
+
+def plot_lomb_scargle_and_phase_fold(tic_id, fmax, fmin):
+    """Compute Lomb-Scargle periodogram, identify peak, and phase-fold data."""
+    try:
+        time, flux, frequencies, power = compute_lomb_scargle_autopower(tic_id, fmax, fmin)
+        
+        peak_frequency = identify_peak_frequency(frequencies, power)
+        phase_sorted, flux_sorted, period = phase_fold_data(time, flux, peak_frequency)
+        
+        # Plot Lomb-Scargle Periodogram
+        plt.figure(figsize=(8, 5))
+        plt.plot(frequencies, power, color='b', label="Lomb-Scargle Power")
+        plt.axvline(peak_frequency, color='r', linestyle="--", label=f"Peak Frequency: {peak_frequency:.6f} 1/day")
+        plt.xlabel("Frequency (1/day)")
+        plt.ylabel("Power")
+        plt.title(f"Lomb-Scargle Periodogram for TIC {tic_id}")
+        plt.legend()
+        plt.grid(alpha=0.3)
+        plt.show()
+        
+        # Plot Phase-Folded Light Curve
+        plt.figure(figsize=(8, 5))
+        plt.scatter(phase_sorted, flux_sorted, s=2, color='k', alpha=0.5, label="Phase-Folded Data")
+        plt.xlabel("Phase")
+        plt.ylabel("Flux")
+        plt.title(f"Phase-Folded Light Curve (P = {period:.5f} days) for TIC {tic_id}")
+        plt.legend()
+        plt.grid(alpha=0.3)
+        plt.show()
+    
+    except ValueError as e:
+        print(f"Error: {e}")
+
+# Parameters
+fmax = 0.55e-3 * 86400  # 0.55 mHz = 555 µHz (in 1/day)
+fmin = 7.7e-9 * 86400  # 7.7 nHz (in 1/day)
+
+# Example usage
+tic_id = 410038602
+plot_lomb_scargle_and_phase_fold(tic_id, fmax, fmin)
