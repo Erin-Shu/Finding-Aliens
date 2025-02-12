@@ -1,1 +1,1 @@
-Hoggnation Code Archive
+Coherent Oscillators in TESS data by Erin
